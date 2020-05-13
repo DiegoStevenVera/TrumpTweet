@@ -7,7 +7,9 @@ Created on Mon Apr 27 16:52:32 2020
 
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from textblob import TextBlob
+sns.set(style="ticks", color_codes=True)
 
 tweets = pd.read_excel('./tweets_trump.xlsx', header=0)
 
@@ -22,6 +24,13 @@ for col in tweets.columns:
                 last_var = tweets[col][i]
             else:
                 tweets[col][i] = last_var
+
+# Con los datos que se pudo recopilar en Yahoo Finance, no se encontraron
+# de las empresas Aetna y andeavor, estas empresas serán eliminadas del dataset
+
+index_to_elim = pd.concat([tweets[tweets['Company name'] == 'Aetna'],
+                           tweets[tweets['Company name'] == 'Andeavor']]).index
+tweets = tweets.drop(index_to_elim)
 
 # Resetear index debido a la eliminación de filas sin valores, se agregará 
 # una columna 'index' con los valores anteriores del index, que se eliminarán
@@ -49,9 +58,9 @@ plt.hist(tweets['Subjectivity'], 10, alpha=0.5, label='Subjectivity')
 plt.legend(loc='upper right')
 plt.show()
 
-tweets = tweets.sort_values(['Company name'])
+tweets = tweets.sort_values(['Polarity'])
 
-# Empresas que no tiene: Aetna, andeavor
+
 
 # Obtención de los datos de los índices de las empresas
 # Nombres de las empresas que se usará como key para el dict que se hará
@@ -70,7 +79,8 @@ business = {}
     
 for company in business_name:
     business[company] = {'data': pd.read_csv('./empresas/'+company+'.csv', 
-                                     header=0, usecols=['Date','Open'])}
+                                     header=0)}
+    #, usecols=['Date','Open']
     date = business[company]['data']['Date']
     business[company]['data'].drop('Date', axis='columns')
     business[company]['data']['Date'] = pd.to_datetime(date)
@@ -84,9 +94,53 @@ for company in business_name:
 Ahora todas las empresas con la información que se necesita está en el 
 diccionario, están con la estructura siguiente:
     business = { <Nombre de la empresa>: {
-                    <Data> : <Dataframe con datos de la empresa>,
-                    <Std Open>: <Valor de la desviación estándar del valor 
+                    'data' : <Dataframe con datos de la empresa>,
+                    'Std Open': <Valor de la desviación estándar del valor 
                                     del índice de apertura, 'Open'>}
                 }
     
 """
+
+# Función para obtener datos de los precios según:
+# Input = name_company: Nombre de la empresa del que se quiere los datos, 
+#         date: Fecha de la cual se quiere los datos
+# Output = un Dataframe que contiene los precios de la empresa indicada
+#           del día anterior, el día actual y el día posterior de la fecha
+#           indicada
+
+def data_of(name_company, date):
+    data_company = business[name_company]['data']
+    before = data_company[data_company['Date'] <= date] \
+                            .sort_values('Date', ascending = False).head(2)
+    after = data_company[data_company['Date'] > date].sort_values('Date').head(1)
+    return pd.concat([after,before])
+
+# Ahora con la función se puede obtener la diferencia de los precios con respecto
+# al día posterior con el actual, esto para conocer si el precio subió o bajó
+# el día posterior, se colocará todo en variations
+
+variations = []
+
+for company, date in tweets[['Company name', 'Date']].values:
+    price_company_date = data_of(company, date).head(2)
+    # Variación del incremento o decremento del precio de apertura del 
+    # día posterior con respecto al actual
+    prices = price_company_date['Open']
+    variation = prices.iloc[0] - prices.iloc[1]
+    variations.append(1 if variation > 0 else -1)
+
+# La lista creada se agregará al dataframe de tweets para obtener el label Y
+# que necesitamos para la predicción, este nos dirá si el precio subió o bajó
+tweets['Variation'] = variations
+
+# Gráfico, muestra la negatividad o positividad del tweet con respecto
+# si el precio bajó o subió
+plot = sns.catplot(x="Variation", y="Polarity", kind="swarm", data=tweets)
+plot.set(xticklabels=['Descent', 'Ascent'])
+
+
+
+
+
+
+
