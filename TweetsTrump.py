@@ -8,8 +8,13 @@ Created on Mon Apr 27 16:52:32 2020
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
 from textblob import TextBlob
 sns.set(style="ticks", color_codes=True)
+
+""" PREPARACIÓN DE LOS DATOS DE LOS TWEETS """
 
 tweets = pd.read_excel('./tweets_trump.xlsx', header=0)
 
@@ -36,6 +41,12 @@ tweets = tweets.drop(index_to_elim)
 # una columna 'index' con los valores anteriores del index, que se eliminarán
 tweets = tweets.reset_index()
 
+# Normalizar los valores de la característica "Opening/Closing", debido 
+# a que algunos tenían espacios en blancos y estaban en mayusculas y otros
+# en minusculas
+tweets['Opening/Closing'] = tweets['Opening/Closing'] \
+                                    .apply(lambda x: x.lower().strip())
+
 # Eliminación de columnas
 drop_col = ['Event Number', 'SentiStrength', 'Code', 'index']
 tweets = tweets.drop(drop_col, axis=1)
@@ -43,9 +54,14 @@ tweets = tweets.drop(drop_col, axis=1)
 # Características
 print(tweets.columns)
 
-# Análisis de sentimientos
-# Polárity rango: [-1 : 1] = [negativo : positivo]
-# Subjectivity rango: [0 : 1] = [objetivo : subjetivo]
+""" 
+ANÁLISIS DE SENTIMIENTOS
+
+ Polárity rango: [-1 : 1] = [negativo : positivo]
+ Subjectivity rango: [0 : 1] = [objetivo : subjetivo]
+
+"""
+
 tweets['Polarity'] = tweets['Tweet'] \
                     .apply(lambda tweet: TextBlob(tweet).sentiment.polarity)
                     
@@ -60,7 +76,7 @@ plt.show()
 
 tweets = tweets.sort_values(['Polarity'])
 
-
+""" PREPARACIÓN DE LOS DATOS DE LA BOLSA DE VALORES """
 
 # Obtención de los datos de los índices de las empresas
 # Nombres de las empresas que se usará como key para el dict que se hará
@@ -101,6 +117,8 @@ diccionario, están con la estructura siguiente:
     
 """
 
+""" CONSTRUCCIÓN DE LA MATRIZ FINAL """
+
 # Función para obtener datos de los precios según:
 # Input = name_company: Nombre de la empresa del que se quiere los datos, 
 #         date: Fecha de la cual se quiere los datos
@@ -115,6 +133,7 @@ def data_of(name_company, date):
     after = data_company[data_company['Date'] > date].sort_values('Date').head(1)
     return pd.concat([after,before])
 
+
 # Ahora con la función se puede obtener la diferencia de los precios con respecto
 # al día posterior con el actual, esto para conocer si el precio subió o bajó
 # el día posterior, se colocará todo en variations
@@ -127,7 +146,7 @@ for company, date in tweets[['Company name', 'Date']].values:
     # día posterior con respecto al actual
     prices = price_company_date['Open']
     variation = prices.iloc[0] - prices.iloc[1]
-    variations.append(1 if variation > 0 else -1)
+    variations.append(1 if variation > 0 else 0)
 
 # La lista creada se agregará al dataframe de tweets para obtener el label Y
 # que necesitamos para la predicción, este nos dirá si el precio subió o bajó
@@ -138,8 +157,44 @@ tweets['Variation'] = variations
 plot = sns.catplot(x="Variation", y="Polarity", kind="swarm", data=tweets)
 plot.set(xticklabels=['Descent', 'Ascent'])
 
+# Se agrega la desviación estándar a la matriz final "tweets"
+std_open = [business[i]['Std open'] for i in tweets['Company name']]
+tweets['Std open'] = std_open
 
+Y = tweets['Variation']
+X = tweets[['Company name', 'Opening/Closing', 'Polarity', 'Subjectivity', 'Std open']]
 
+""" CONSTRUCCIÓN DEL MODELO """
+ 
+X_label = X.drop(['Company name', 'Opening/Closing'], axis='columns')
+
+label_encoder = LabelEncoder()
+
+for col in ['Company name', 'Opening/Closing']:
+    label_encoder.fit(X[col])
+    X_label[col] = label_encoder.transform(X[col])
+
+train_X, val_X, train_y, val_y = train_test_split(X_label, Y, random_state = 0,
+                                                  test_size = 0.1)
+
+# Sin cross validation
+model = RandomForestClassifier(n_estimators=360, max_depth=3, random_state=0)
+model.fit(train_X, train_y)
+model.score(val_X, val_y)
+
+# con cross validation
+from sklearn.model_selection import cross_val_score
+
+list_scores = []
+
+for i in range(100, 620, 20):
+    print(i)
+    model = RandomForestClassifier(n_estimators=i, max_depth=3, random_state=0)
+    scores = cross_val_score(model, X_label, Y, cv=5)    
+    list_scores.append(scores.mean())
+    print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
+
+plt.plot(list(range(100, 620, 20)), list_scores)
 
 
 
