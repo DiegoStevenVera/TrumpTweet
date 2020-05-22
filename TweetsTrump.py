@@ -8,10 +8,14 @@ Created on Mon Apr 27 16:52:32 2020
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
+
+from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from textblob import TextBlob
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 sns.set(style="ticks", color_codes=True)
 
 """ PREPARACIÓN DE LOS DATOS DE LOS TWEETS """
@@ -55,7 +59,7 @@ tweets = tweets.drop(drop_col, axis=1)
 print(tweets.columns)
 
 """ 
-ANÁLISIS DE SENTIMIENTOS
+ANÁLISIS DE SENTIMIENTOS CON TEXT BLOB
 
  Polárity rango: [-1 : 1] = [negativo : positivo]
  Subjectivity rango: [0 : 1] = [objetivo : subjetivo]
@@ -165,7 +169,9 @@ Y = tweets['Variation']
 X = tweets[['Company name', 'Opening/Closing', 'Polarity', 'Subjectivity', 'Std open']]
 
 """ CONSTRUCCIÓN DEL MODELO """
- 
+
+""" MODELO CON TEXT BLOB """
+
 X_label = X.drop(['Company name', 'Opening/Closing'], axis='columns')
 
 label_encoder = LabelEncoder()
@@ -175,7 +181,7 @@ for col in ['Company name', 'Opening/Closing']:
     X_label[col] = label_encoder.transform(X[col])
 
 train_X, val_X, train_y, val_y = train_test_split(X_label, Y, random_state = 0,
-                                                  test_size = 0.1)
+                                                  test_size = 0.2)
 
 # Sin cross validation
 model = RandomForestClassifier(n_estimators=360, max_depth=3, random_state=0)
@@ -183,7 +189,6 @@ model.fit(train_X, train_y)
 model.score(val_X, val_y)
 
 # con cross validation
-from sklearn.model_selection import cross_val_score
 
 list_scores = []
 
@@ -194,8 +199,149 @@ for i in range(100, 620, 20):
     list_scores.append(scores.mean())
     print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
 
-plt.plot(list(range(100, 620, 20)), list_scores)
+RF_TB = plt.subplot()
+RF_TB.set_xlabel('n_estimators')
+RF_TB.set_ylim(0.58, 0.72)
+RF_TB.set_ylabel('Precisión')
+RF_TB.plot(list(range(100, 620, 20)), list_scores, label='Gini')
 
+list_scores = []
 
+for i in range(100, 620, 20):
+    print(i)
+    model = RandomForestClassifier(n_estimators=i, criterion='entropy',\
+                                   max_depth=3, random_state=0)
+    scores = cross_val_score(model, X_label, Y, cv=5)    
+    list_scores.append(scores.mean())
+    print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
+    
+RF_TB.plot(list(range(100, 620, 20)), list_scores, label='Entropy')
+RF_TB.legend(loc='upper rigth', shadow=True)
 
+""" MODELO CON VADER CON VALORES PUROS """
 
+analizer = SentimentIntensityAnalyzer()
+tweet_Vader = tweets.drop(['Polarity', 'Subjectivity'], axis='columns')
+
+tweet_Vader['Negative'] = tweet_Vader['Tweet'] \
+                    .apply(lambda x: analizer.polarity_scores(x)['neg'])
+
+tweet_Vader['Neutro'] = tweet_Vader['Tweet'] \
+                    .apply(lambda x: analizer.polarity_scores(x)['neu'])
+
+tweet_Vader['Positive'] = tweet_Vader['Tweet'] \
+                    .apply(lambda x: analizer.polarity_scores(x)['pos'])
+
+tweet_Vader['Compound'] = tweet_Vader['Tweet'] \
+                    .apply(lambda x: analizer.polarity_scores(x)['compound'])
+
+Yv = Y.copy()
+Xv = tweet_Vader[['Std open', 'Negative', 'Positive', 'Neutro', 'Compound']]
+
+label_encoder = LabelEncoder()
+
+for col in ['Company name', 'Opening/Closing']:
+    label_encoder.fit(tweet_Vader[col])
+    Xv[col] = label_encoder.transform(tweet_Vader[col])
+
+train_X, val_X, train_y, val_y = train_test_split(Xv, Yv, random_state = 0,
+                                                  test_size = 0.2)
+
+# Sin cross validation
+modelV = RandomForestClassifier(n_estimators=360, max_depth=3, random_state=0)
+modelV.fit(train_X, train_y)
+modelV.score(val_X, val_y)
+
+# Con cross validation
+
+list_scoresV = []
+
+for i in range(100, 620, 20):
+    print(i)
+    modelV = RandomForestClassifier(n_estimators=i, max_depth=3, random_state=0)
+    scores = cross_val_score(modelV, Xv, Yv, cv=5)    
+    list_scoresV.append(scores.mean())
+    print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
+
+RF_VS = plt.subplot()
+RF_VS.set_xlabel('n_estimators')
+RF_VS.set_ylim(0.58, 0.72)
+RF_VS.set_ylabel('Precisión')
+RF_VS.plot(list(range(100, 620, 20)), list_scoresV, label='Gini')
+
+list_scoresV = []
+
+for i in range(100, 620, 20):
+    print(i)
+    modelV = RandomForestClassifier(n_estimators=i, criterion='entropy',\
+                                    max_depth=3, random_state=0)
+    scores = cross_val_score(modelV, Xv, Yv, cv=5)    
+    list_scoresV.append(scores.mean())
+    print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
+
+RF_VS.plot(list(range(100, 620, 20)), list_scoresV, label='Entropy')
+RF_VS.legend(loc='upper rigth', shadow=True)
+
+""" MODELO CON VADER CON SOLO COMPOUND """
+
+tweet_VaderC = tweets.drop(['Polarity', 'Subjectivity'], axis='columns')
+
+# Si compound >= 0.05 es positivo
+# Si 0.05 > compound > -0.05 es neutro
+# Si -0.05 >= compound es negativo
+
+tweet_VaderC['Sentiment'] = tweet_Vader['Tweet'] \
+                    .apply(lambda x: "pos" \
+                           if analizer.polarity_scores(x)['compound'] >= 0.05 \
+                               else "neu" \
+                                   if analizer.polarity_scores(x)['compound'] > -0.05 \
+                                       else "neg")
+
+YvC = tweet_VaderC['Variation']
+XvC = tweet_VaderC.drop(['Company name', 'Date', 'Time (EST)', 'Tweet', \
+                         'Opening/Closing', 'Variation', 'Sentiment'], axis='columns')
+
+label_encoder = LabelEncoder()
+
+for col in ['Company name', 'Opening/Closing', 'Sentiment']:
+    label_encoder.fit(tweet_VaderC[col])
+    XvC[col] = label_encoder.transform(tweet_VaderC[col])
+    
+train_X, val_X, train_y, val_y = train_test_split(XvC, YvC, random_state = 0,
+                                                  test_size = 0.2)
+
+# Sin cross validation
+modelVC = RandomForestClassifier(n_estimators=360, max_depth=3, random_state=0)
+modelVC.fit(train_X, train_y)
+modelVC.score(val_X, val_y)
+
+# Con cross validation
+
+list_scoresVC = []
+
+for i in range(100, 620, 20):
+    print(i)
+    modelVC = RandomForestClassifier(n_estimators=i, max_depth=3, random_state=0)
+    scores = cross_val_score(modelVC, XvC, YvC, cv=5)    
+    list_scoresVC.append(scores.mean())
+    print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
+
+RF_VSC = plt.subplot()
+RF_VSC.set_xlabel('n_estimators')
+RF_VSC.set_ylim(0.58, 0.72)
+RF_VSC.set_ylabel('Precisión')
+RF_VSC.plot(list(range(100, 620, 20)), list_scoresVC, label='Gini')
+
+list_scoresVC = []
+
+for i in range(100, 620, 20):
+    print(i)
+    modelVC = RandomForestClassifier(n_estimators=i, criterion='entropy', \
+                                     max_depth=3, random_state=0)
+    scores = cross_val_score(modelVC, XvC, YvC, cv=5)    
+    list_scoresVC.append(scores.mean())
+    print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
+    
+    
+RF_VSC.plot(list(range(100, 620, 20)), list_scoresVC, label='Entropy')
+RF_VSC.legend(loc='upper rigth', shadow=True)
