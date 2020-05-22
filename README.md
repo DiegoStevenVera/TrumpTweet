@@ -14,5 +14,5 @@ _Poder predecir cómo afecta en la bolsa de valores los Tweets de una persona in
 
 ## Archivos
 
-* **tweets_trump.xlsx** - Recopilación de Tweets de Trump.
+* **tweets_trump.xlsx** - Recopilación de Tweets de Trump. (Fuente: https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0229931)
 * **TweetsTrump.py** - Código fuente del proyecto.
