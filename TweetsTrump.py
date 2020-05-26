@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 
-from sklearn.model_selection import cross_val_score
+from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
@@ -20,7 +21,10 @@ sns.set(style="ticks", color_codes=True)
 
 """ PREPARACIÓN DE LOS DATOS DE LOS TWEETS """
 
-tweets = pd.read_excel('./tweets_trump.xlsx', header=0)
+path = 'C:\\Users\\diego\\OneDrive\\Documentos\\UNAM\\Cursos\\'+\
+                       'Análisis y Procesamiento de textos\\proyecto\\'
+
+tweets = pd.read_excel(path+'tweets_trump.xlsx', header=0)
 
 # Eliminar todas las filas sin ningún valor
 tweets = tweets.dropna(how='all')
@@ -98,7 +102,7 @@ business_name = ['Alibaba', 'Apple', 'American Airline', 'Amazon', 'AT&T', \
 business = {}
     
 for company in business_name:
-    business[company] = {'data': pd.read_csv('./empresas/'+company+'.csv', 
+    business[company] = {'data': pd.read_csv(path+'\\empresas\\'+company+'.csv', 
                                      header=0)}
     #, usecols=['Date','Open']
     date = business[company]['data']['Date']
@@ -345,3 +349,14 @@ for i in range(100, 620, 20):
     
 RF_VSC.plot(list(range(100, 620, 20)), list_scoresVC, label='Entropy')
 RF_VSC.legend(loc='upper rigth', shadow=True)
+
+""" MODELO FINAL """
+
+modelVC = RandomForestClassifier(n_estimators=300, criterion='entropy', \
+                                     max_depth=3, random_state=0)
+scores = cross_val_score(modelVC, XvC, YvC, cv=5)   
+print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
+
+# MAtriz de confusión
+y_prediction = cross_val_predict(modelVC, XvC, YvC, cv=5)
+print(confusion_matrix(YvC, y_prediction))
