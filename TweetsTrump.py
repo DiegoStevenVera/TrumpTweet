@@ -294,22 +294,52 @@ tweet_VaderC = tweets.drop(['Polarity', 'Subjectivity'], axis='columns')
 # Si 0.05 > compound > -0.05 es neutro
 # Si -0.05 >= compound es negativo
 
-tweet_VaderC['Sentiment'] = tweet_Vader['Tweet'] \
-                    .apply(lambda x: "pos" \
-                           if analizer.polarity_scores(x)['compound'] >= 0.05 \
+measure_sentiment = lambda x: "pos" \
+                           if x >= 0.05 \
                                else "neu" \
-                                   if analizer.polarity_scores(x)['compound'] > -0.05 \
-                                       else "neg")
+                                   if x > -0.05 \
+                                       else "neg"
+
+tweet_VaderC['Sentiment'] = tweet_Vader['Tweet'] \
+                    .apply(lambda x: measure_sentiment(analizer.polarity_scores(x)['compound']))
 
 YvC = tweet_VaderC['Variation']
 XvC = tweet_VaderC.drop(['Company name', 'Date', 'Time (EST)', 'Tweet', \
                          'Opening/Closing', 'Variation', 'Sentiment'], axis='columns')
 
+"""
+ Se guardan los códigos para que puedan ser usados luego para codificar al 
+ momento de predecir, es un diccionario definido de la siguiente manera:
+ 
+     codes = {
+         'Company name'=diccionario con los códigos y los labels a los que 
+                         pertenece,
+        'Opening/Closing'={
+                'closing'=0,
+                'opening'=1
+            }
+        'Sentiment'={
+                'neg':0,
+                'neu':1,
+                'pos':2
+            }
+         }
+"""
+  
 label_encoder = LabelEncoder()
 
+codes = {}
+
 for col in ['Company name', 'Opening/Closing', 'Sentiment']:
-    label_encoder.fit(tweet_VaderC[col])
-    XvC[col] = label_encoder.transform(tweet_VaderC[col])
+    XvC[col] = label_encoder.fit_transform(tweet_VaderC[col])
+    index = np.sort(np.array(XvC[col].value_counts().index))
+    cod = label_encoder.inverse_transform(index)
+    codes[col] = {}
+    
+    for name, code in zip(cod, index):
+        codes[col][name] = code
+
+# División de datos
     
 train_X, val_X, train_y, val_y = train_test_split(XvC, YvC, random_state = 0,
                                                   test_size = 0.2)
@@ -360,3 +390,44 @@ print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
 # MAtriz de confusión
 y_prediction = cross_val_predict(modelVC, XvC, YvC, cv=5)
 print(confusion_matrix(YvC, y_prediction))
+
+# Función para predecir
+# tweet= texto del tweet
+# company_name= nombre de la empresa conocida por el diccionario
+# oc= opening/closing
+
+def predict_RF_VSC(tweet, company_name, oc):
+    # to predict std open, company name, opening/closing, sentiment
+    analizerSentiment = SentimentIntensityAnalyzer()
+    compound = analizerSentiment.polarity_scores(tweet)['compound']
+    modelVC = RandomForestClassifier(n_estimators=300, criterion='entropy', \
+                                     max_depth=3, random_state=0)
+    sentiment = measure_sentiment(compound)
+    std = business[company_name]['Std open']
+    company_index = codes['Company name'][company_name]
+    oc_index = codes['Opening/Closing'][oc]
+    s_index = codes['Sentiment'][sentiment]
+    
+    modelVC.fit(train_X, train_y)
+    X=pd.DataFrame({
+        'Std open':[std],
+        'Company name':[company_index],
+        'Opening/Closing':[oc_index],
+        'Sentiment':[s_index]
+        })
+    print(X)
+    y_pred = modelVC.predict(X)
+    return 'Aumentará' if y_pred == 1 else 'Bajará'
+
+tweet="Just talked with Pfizer CEO and @SecAzar on our drug pricing blueprint. Pfizer is rolling back price hikes so American patients don’t pay more. We applaud Pfizer for this decision and hope other companies do the same. Great news for the American people!"
+company_name="Pfizer"
+oc="closing"
+
+predict_RF_VSC(tweet, company_name, oc)
+
+# gráfica de todos los tweets con el análisis de sentimientos vader
+
+tweetshist = plt.subplot()
+tweetshist.set_ylabel('Cantidad de tweets')
+tweetshist.set_xlabel('Sentimiento de los tweets')
+tweetshist.hist(tweet_VaderC['Sentiment'], bins=3)
